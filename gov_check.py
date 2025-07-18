@@ -10,7 +10,9 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-
+from selenium.common.exceptions import  NoSuchElementException
+import subprocess
+from subprocess import check_output
 def helper(a, b):
 
     for i, l_a in enumerate(a):
@@ -46,7 +48,7 @@ def clean_title(title: str) -> str:
         title = title[1:].lstrip()
 
     # Remove trailing "; and Appendix" if present
-    suffix = "; and Appendix"
+    suffix = "; and" #the Appendix is on a different element.
     if title.endswith(suffix):
         title = title[:-len(suffix)].rstrip()
 
@@ -70,20 +72,19 @@ print(savedText)
 wereEqual = savedText == box_text
 print("Were equal:", wereEqual)
 textFileRead.close()
-if True:#not wereEqual:
+if not wereEqual:
     print("Strings differ by", diff(savedText, box_text))
     print("Updating saved information, is now", box_text)
     with open(TEXT_FILE_NAME, "w") as textFileWrite:
         textFileWrite.write(box_text)
-        textFileWrite.close()
-        #Update all US Codes.  It's safe enough to assume they won't add more.
-        driver.get("https://uscode.house.gov/browse.xhtml")
-        iframe = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, "iframe"))
-        )
-        driver.switch_to.frame(iframe)
-        for title_number in range(1, 55):
-            
+    #Update all US Codes.  It's safe enough to assume they won't add more.
+    driver.get("https://uscode.house.gov/browse.xhtml")
+    iframe = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.TAG_NAME, "iframe"))
+    )
+    driver.switch_to.frame(iframe)
+    for title_number in range(1, 55):
+        try:
             element_name = f"USC-prelim-title{title_number}"
             #print(element_id)
             title_link = driver.find_element(by=By.NAME, value=element_name)
@@ -94,24 +95,28 @@ if True:#not wereEqual:
             chapterUrl = f"https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title{title_number}-front&num=0&edition=prelim"
             driverSecond.get(chapterUrl)
             #please dump me the contents of this file
-            print(driverSecond.find_element(By.XPATH, "/html/body").text)
-            with open(titleFilename, "w") as titleFile:
-                print()
+            #print(driverSecond.find_element(By.XPATH, "/html/body").text)
+            elements = driverSecond.find_elements(By.CLASS_NAME, "link_class")
+            second_element = elements[1] #Should be the main title page.  This URL is wacky, which is why I'm not relying on it directly.
+            driverSecond.get(second_element.get_attribute('href'))
+            with open(titleFilename, "w", encoding='utf-8') as titleFile:
+                titleFile.write(driverSecond.find_element(By.XPATH, "/html/body").text)
+        except (NoSuchElementException, IndexError):
+            if title_number == 53:
+                print("Title 53 not found, it probably doesn't exist yet.")
+            else:
+                print(f"ERROR: Title {title_number} not found, aborting and alerting.")
+                break
+#At this point, we should have downloaded all of the files in full.  If not, figure out how to make them load fully.
+#because of this, all the file-copying logic needs to go over here in a second for loop.
+    driver.quit()
+    driverSecond.quit()
 
-#<a name="USC-prelim-title14" target="_top" href="/browse/prelim@title14&amp;edition=prelim" style="text-decoration: none;">*Title 14—Coast Guard</a>
+    #ok, this bit is just figuring out what commands we can run on the command line.
 
-## id "USC-prelim-title13:div"
+    commandString = f"cp '.\Title*.txt' ..\BillDiffs\One-Big-Beautiful-Bill-Act\ && cd ..\BillDiffs\One-Big-Beautiful-Bill-Act && git add -u && git commit -m {box_text}"#&& git push"
+    print(subprocess.check_output(commandString, shell=True))
 #Save this value for future use.
 
-
-driver.quit()
-
-'''
-text_box = driver.find_element(by=By.NAME, value="my-text")
-submit_button = driver.find_element(by=By.CSS_SELECTOR, value="button")
-text_box.send_keys("Selenium")
-submit_button.click()
-message = driver.find_element(by=By.ID, value="message")
-text = message.text
-
-'''
+#schedule with windows task scheduler.
+#
